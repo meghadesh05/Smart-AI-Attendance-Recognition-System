@@ -4,7 +4,7 @@ from src.ui.base_layout import style_background_dashboard, style_base_layout
 from src.components.header import header_dashboard
 from src.components.footer import footer_dashboard
 from src.components.subject_card import subject_card 
-from src.database.db import check_teacher_exists, create_teacher, teacher_login, get_teacher_subjects
+from src.database.db import check_teacher_exists, create_teacher, teacher_login, get_teacher_subjects,get_attendance_for_teacher
 from src.components.dialog_create_subject import create_subject_dialog
 from src.components.dialog_share_subject import share_subject_dialog
 from src.components.dialog_add_photo import add_photos_dialog
@@ -14,6 +14,8 @@ from src.database.config import supabase
 from datetime import datetime
 import pandas as pd
 from src.components.dialog_attendance_results import attendance_result_dialog 
+from src.components.dialog_voice_attendance import voice_attendance_dialog
+
 
 
 def teacher_screen():
@@ -112,6 +114,9 @@ def teacher_tab_take_attendance():
 
     st.divider()
 
+
+
+
     if st.session_state.attendance_images:
         st.header('Added Photos')
         gallery_cols = st.columns(4)
@@ -176,11 +181,11 @@ def teacher_tab_take_attendance():
                             'is_present': bool(is_present)
                         })
 
-                attendance_result_dialog(pd.DataFrame(results), attendance_to_log)
+                    attendance_result_dialog(pd.DataFrame(results), attendance_to_log)
 
-    # with c3:
-    #     if st.button('Use Voice Attendance', type='primary', width='stretch', icon=':material/mic:'):
-    #         voice_attendance_dialog(selected_subject_id)
+    with c3:
+        if st.button('Use Voice Attendance', type='primary', width='stretch', icon=':material/mic:'):
+            voice_attendance_dialog(selected_subject_id)
 
 
 
@@ -222,8 +227,50 @@ def teacher_tab_manage_subjects():
 
 
 def teacher_tab_attendance_records():
-    st.header('Attendance Records')    
+    #st.header('Attendance Records')    
+    st.header('Attendance Records')
 
+    teacher_id = st.session_state.teacher_data['teacher_id']
+
+    records = get_attendance_for_teacher(teacher_id)
+
+    if not records:
+        return
+    
+    data = []
+
+    for r in records:
+        ts = r.get('timestamp')
+
+        data.append({
+            "ts_group": ts.split(".")[0] if ts else None,
+            "Time": datetime.fromisoformat(ts).strftime("%Y-%m-%d %I:%M %p") if ts else "N'A",
+            "Subject": r['subjects']['name'],
+            "Subject Code":r['subjects']['subject_code'],
+            "is_present": bool(r.get('is_present', False))
+        })
+
+
+    df = pd.DataFrame(data)
+    summary = (
+        df.groupby(['ts_group', 'Time', 'Subject', 'Subject Code'])
+        .agg(
+            Present_Count = ('is_present', 'sum'),
+            Total_Count =('is_present', 'count')
+        ).reset_index()
+
+    )
+
+    summary['Attendance Stats'] = (
+        "✅ " + summary['Present_Count'].astype(str) + " /"
+        + summary['Total_Count'].astype(str) + ' Students'
+    )
+
+    display_df = ( summary.sort_values(by='ts_group' ,ascending=False)
+                  [['Time', 'Subject', 'Subject Code', 'Attendance Stats']]
+                  )
+    
+    st.dataframe(display_df, width='stretch', hide_index=True)
 
 
     #st.subheader(f"""Welcome, {teacher_data['name']}""")
